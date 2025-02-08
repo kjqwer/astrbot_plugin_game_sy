@@ -169,7 +169,13 @@ class HuanJuPlugin(Star):
         
         # 设置第一个玩家
         room["current_player"] = list(room["players"])[0]
-        yield event.plain_result(f"游戏开始！请 @{room['current_player']} 选择 /hj hit 要牌 或 /hj stand 停牌")
+        first_player = room["current_player"]
+        if str(first_player).startswith("bot_"):
+            msg = MessageChain().message(f"游戏开始！轮到 {room['bot_names'][first_player]} 的回合")
+            await self.context.send_message(event.unified_msg_origin, msg)
+            await self.bot_play(event, group_id, first_player)
+        else:
+            yield event.plain_result(f"游戏开始！请 @{first_player} 选择 /hj hit 要牌 或 /hj stand 停牌")
 
     @huanju.command("hit")
     async def hit(self, event: AstrMessageEvent):
@@ -218,7 +224,12 @@ class HuanJuPlugin(Star):
             
             if next_player:
                 room["current_player"] = next_player
-                yield event.plain_result(f"轮到 @{next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
+                if str(next_player).startswith("bot_"):
+                    msg = MessageChain().message(f"轮到 {room['bot_names'][next_player]} 的回合")
+                    await self.context.send_message(event.unified_msg_origin, msg)
+                    await self.bot_play(event, group_id, next_player)
+                else:
+                    yield event.plain_result(f"轮到 @{next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
             else:
                 # 游戏结束，计算结果
                 result = await self.get_game_result(room)
@@ -260,7 +271,12 @@ class HuanJuPlugin(Star):
         
         if next_player:
             room["current_player"] = next_player
-            yield event.plain_result(f"轮到 @{next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
+            if str(next_player).startswith("bot_"):
+                msg = MessageChain().message(f"轮到 {room['bot_names'][next_player]} 的回合")
+                await self.context.send_message(event.unified_msg_origin, msg)
+                await self.bot_play(event, group_id, next_player)
+            else:
+                yield event.plain_result(f"轮到 @{next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
         else:
             # 游戏结束，计算结果
             result = await self.get_game_result(room)
