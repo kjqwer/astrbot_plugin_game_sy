@@ -311,6 +311,9 @@ class HuanJuPlugin(Star):
         else:
             should_hit = random.random() < 0.7
             
+        # 添加延迟，模拟思考时间
+        await asyncio.sleep(random.uniform(1, 2))
+            
         if should_hit:
             # 要牌
             card = self.draw_card(room)
@@ -319,20 +322,23 @@ class HuanJuPlugin(Star):
             room["points"][bot_id] = new_points
             
             cards_str = " ".join(room["current_cards"][bot_id])
-            yield event.plain_result(f"{bot_name} 要了一张牌: {card}\n当前手牌: {cards_str}\n当前点数: {new_points}")
+            # 使用 Bot 发送消息
+            msg = MessageChain().message(f"{bot_name} 选择要牌\n抽到了: {card}\n当前手牌: {cards_str}\n当前点数: {new_points}")
+            await self.context.send_message(event.unified_msg_origin, msg)
             
             if new_points > 21:
                 room["player_status"][bot_id] = "bust"
-                yield event.plain_result(f"{bot_name} 爆牌了！")
+                msg = MessageChain().message(f"{bot_name} 爆牌了！")
+                await self.context.send_message(event.unified_msg_origin, msg)
                 await self.next_turn(event, group_id, bot_id)
             else:
                 # 机器人继续决策
-                async for msg in self.bot_play(event, group_id, bot_id):
-                    yield msg
+                await self.bot_play(event, group_id, bot_id)
         else:
             # 停牌
             room["player_status"][bot_id] = "stand"
-            yield event.plain_result(f"{bot_name} 选择停牌，最终点数: {points}")
+            msg = MessageChain().message(f"{bot_name} 选择停牌，最终点数: {points}")
+            await self.context.send_message(event.unified_msg_origin, msg)
             await self.next_turn(event, group_id, bot_id)
 
     async def next_turn(self, event: AstrMessageEvent, group_id: str, current_player: str):
@@ -354,15 +360,17 @@ class HuanJuPlugin(Star):
             if str(next_player).startswith("bot_"):
                 # 如果下一个是机器人，自动进行操作
                 bot_name = room["bot_names"][next_player]
-                yield event.plain_result(f"轮到 {bot_name} 的回合")
-                async for msg in self.bot_play(event, group_id, next_player):
-                    yield msg
+                msg = MessageChain().message(f"轮到 {bot_name} 的回合")
+                await self.context.send_message(event.unified_msg_origin, msg)
+                await self.bot_play(event, group_id, next_player)
             else:
-                yield event.plain_result(f"轮到 @{next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
+                msg = MessageChain().message(f"轮到 @{next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
+                await self.context.send_message(event.unified_msg_origin, msg)
         else:
             # 游戏结束，计算结果
             result = await self.get_game_result(room)
-            yield event.plain_result(result)
+            msg = MessageChain().message(result)
+            await self.context.send_message(event.unified_msg_origin, msg)
             del self.game_rooms[group_id]
 
     async def get_game_result(self, room: Dict) -> str:
