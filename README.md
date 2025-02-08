@@ -18,7 +18,6 @@
 - `/hj start` - 开始游戏（仅房主可用）
 - `/hj hit` - 要牌
 - `/hj stand` - 停牌
-- `/hj quit` - 退出游戏
 - `/hj help` - 显示帮助信息
 
 ## 游戏流程
