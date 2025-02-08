@@ -99,7 +99,37 @@ class HuanJuPlugin(Star):
             yield event.plain_result("只有房主才能开始游戏！")
             return
             
-        await self.init_game(event, group_id)
+        # 初始化游戏
+        room["status"] = "playing"
+        room["current_cards"] = {player_id: [] for player_id in room["players"]}
+        room["player_status"] = {player_id: "playing" for player_id in room["players"]}
+        room["points"] = {player_id: 0 for player_id in room["players"]}
+        
+        # 生成一副牌
+        deck = []
+        for suit in self.suits:
+            for card in self.cards:
+                deck.append(f"{suit}{card}")
+        random.shuffle(deck)
+        room["deck"] = deck
+        
+        # 每人发两张牌
+        for player_id in room["players"]:
+            for _ in range(2):
+                card = self.draw_card(room)
+                room["current_cards"][player_id].append(card)
+            points = self.calculate_points(room["current_cards"][player_id])
+            room["points"][player_id] = points
+            
+            cards_str = " ".join(room["current_cards"][player_id])
+            await self.context.send_message(
+                event.unified_msg_origin,
+                MessageChain().at(player_id).message(f"\n你的手牌是: {cards_str}\n当前点数: {points}")
+            )
+        
+        # 设置第一个玩家
+        room["current_player"] = list(room["players"])[0]
+        yield event.plain_result(f"游戏开始！请 {room['current_player']} 选择 /hj hit 要牌 或 /hj stand 停牌")
 
     @huanju.command("hit")
     async def hit(self, event: AstrMessageEvent):
@@ -135,7 +165,26 @@ class HuanJuPlugin(Star):
         if points > 21:
             room["player_status"][player_id] = "bust"
             yield event.plain_result(f"爆牌了！")
-            await self.next_player(event, group_id)
+            # 找下一个玩家
+            players = list(room["players"])
+            current_index = players.index(player_id)
+            
+            # 找下一个未停牌的玩家
+            next_player = None
+            for i in range(1, len(players)):
+                index = (current_index + i) % len(players)
+                if room["player_status"][players[index]] == "playing":
+                    next_player = players[index]
+                    break
+            
+            if next_player:
+                room["current_player"] = next_player
+                yield event.plain_result(f"轮到 {next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
+            else:
+                # 游戏结束，计算结果
+                result = await self.get_game_result(room)
+                yield event.plain_result(result)
+                del self.game_rooms[group_id]
         else:
             yield event.plain_result(f"请选择 /hj hit 继续要牌 或 /hj stand 停牌")
 
@@ -157,41 +206,27 @@ class HuanJuPlugin(Star):
         room["player_status"][player_id] = "stand"
         points = room["points"][player_id]
         yield event.plain_result(f"你选择停牌，最终点数: {points}")
-        await self.next_player(event, group_id)
-
-    async def init_game(self, event: AstrMessageEvent, group_id: str):
-        '''初始化游戏'''
-        room = self.game_rooms[group_id]
-        room["status"] = "playing"
-        room["current_cards"] = {player_id: [] for player_id in room["players"]}
-        room["player_status"] = {player_id: "playing" for player_id in room["players"]}
-        room["points"] = {player_id: 0 for player_id in room["players"]}
         
-        # 生成一副牌
-        self.deck = []
-        for suit in self.suits:
-            for card in self.cards:
-                self.deck.append(f"{suit}{card}")
-        random.shuffle(self.deck)
-        room["deck"] = self.deck
+        # 找下一个玩家
+        players = list(room["players"])
+        current_index = players.index(player_id)
         
-        # 每人发两张牌
-        for player_id in room["players"]:
-            for _ in range(2):
-                card = self.draw_card(room)
-                room["current_cards"][player_id].append(card)
-            points = self.calculate_points(room["current_cards"][player_id])
-            room["points"][player_id] = points
-            
-            cards_str = " ".join(room["current_cards"][player_id])
-            await self.context.send_message(
-                event.unified_msg_origin,
-                MessageChain().at(player_id).message(f"\n你的手牌是: {cards_str}\n当前点数: {points}")
-            )
+        # 找下一个未停牌的玩家
+        next_player = None
+        for i in range(1, len(players)):
+            index = (current_index + i) % len(players)
+            if room["player_status"][players[index]] == "playing":
+                next_player = players[index]
+                break
         
-        # 设置第一个玩家
-        room["current_player"] = list(room["players"])[0]
-        yield event.plain_result(f"游戏开始！请 {room['current_player']} 选择 /hj hit 要牌 或 /hj stand 停牌")
+        if next_player:
+            room["current_player"] = next_player
+            yield event.plain_result(f"轮到 {next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
+        else:
+            # 游戏结束，计算结果
+            result = await self.get_game_result(room)
+            yield event.plain_result(result)
+            del self.game_rooms[group_id]
 
     def draw_card(self, room: Dict) -> str:
         '''抽一张牌'''
@@ -220,31 +255,8 @@ class HuanJuPlugin(Star):
                 
         return points
 
-    async def next_player(self, event: AstrMessageEvent, group_id: str):
-        '''处理下一个玩家'''
-        room = self.game_rooms[group_id]
-        players = list(room["players"])
-        current_index = players.index(room["current_player"])
-        
-        # 找下一个未停牌的玩家
-        next_player = None
-        for i in range(1, len(players)):
-            index = (current_index + i) % len(players)
-            if room["player_status"][players[index]] == "playing":
-                next_player = players[index]
-                break
-        
-        if next_player:
-            room["current_player"] = next_player
-            yield event.plain_result(f"轮到 {next_player} 的回合，请选择 /hj hit 要牌 或 /hj stand 停牌")
-        else:
-            # 游戏结束，计算结果
-            await self.end_game(event, group_id)
-
-    async def end_game(self, event: AstrMessageEvent, group_id: str):
-        '''游戏结束'''
-        room = self.game_rooms[group_id]
-        
+    async def get_game_result(self, room: Dict) -> str:
+        '''获取游戏结果'''
         # 找出未爆牌的最大点数
         max_points = 0
         winners = []
@@ -257,7 +269,7 @@ class HuanJuPlugin(Star):
                 elif points == max_points:
                     winners.append(player_id)
         
-        # 显示结果
+        # 生成结果字符串
         result = "游戏结束！\n"
         for player_id in room["players"]:
             cards_str = " ".join(room["current_cards"][player_id])
@@ -268,9 +280,8 @@ class HuanJuPlugin(Star):
             result += f"\n获胜者: {', '.join(winners)} ({max_points}点)"
         else:
             result += "\n所有人都爆牌了！"
-        
-        yield event.plain_result(result)
-        del self.game_rooms[group_id]
+            
+        return result
 
     @huanju.command("help")
     async def show_help(self, event: AstrMessageEvent):
